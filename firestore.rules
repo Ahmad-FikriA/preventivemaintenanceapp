@@ -1,0 +1,71 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() { return request.auth != null; }
+    function userDoc(uid) { return get(/databases/$(database)/documents/users/$(uid)); }
+    function isAdmin() {
+      return isSignedIn() && userDoc(request.auth.uid).data.role == 'admin';
+    }
+
+    // ---------- USERS ----------
+    match /users/{uid} {
+      // Single doc read (profile page etc.)
+      allow get: if isSignedIn() && (isAdmin() || request.auth.uid == uid);
+
+      // Collection queries (search/picker) – admin only
+      allow list: if isAdmin();
+
+      // Create/update your own doc; admins can update anyone
+      allow create: if isSignedIn() && request.auth.uid == uid;
+      allow update: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+      allow delete: if false;
+    }
+
+    // ---------- TEMPLATES ----------
+    match /checklist_templates/{id} {
+      allow read: if isSignedIn();                 // techs need to see published ones
+      allow create, update: if isAdmin();
+  // Allow hard delete for admins. Make sure to deploy these rules to your Firebase project.
+  allow delete: if isAdmin();
+    }
+
+    // ---------- EQUIPMENT ----------
+    match /equipment/{id} {
+      allow read: if isSignedIn();
+      allow create, update: if isAdmin();
+  // Allow hard delete only for admins
+  allow delete: if isAdmin();
+    }
+
+    // ---------- SCHEDULES ----------
+    match /schedules/{id} {
+      allow read: if isSignedIn();
+      allow create, update: if isAdmin();
+      allow delete: if false;
+    }
+
+    // ---------- CHECKLIST INSTANCES (the actual jobs) ----------
+    match /checklist_instances/{id} {
+      allow read: if isSignedIn();
+
+      // Let admins assign work; also allow self-create if you ever need it
+      allow create: if isAdmin() || request.resource.data.createdBy == request.auth.uid;
+
+      // Assignees or creator can edit until submitted
+      allow update: if isSignedIn()
+        && (request.auth.uid in resource.data.assignees || request.auth.uid == resource.data.createdBy)
+        && resource.data.status != "submitted";
+
+      allow delete: if false;
+    }
+
+    // ---------- ISSUES ----------
+    match /issues/{id} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && request.auth.uid == resource.data.createdBy;
+      allow delete: if false;
+    }
+  }
+}
